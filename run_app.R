@@ -1,0 +1,15 @@
+source('setup.R')
+source('reactive_values.R')
+source('asset_analysis.R')
+source('app.R')
+library(diversifieR)
+library(shiny)
+library(shinythemes)
+library(rhandsontable)
+library(reactable)
+library(plotly)
+
+db <- Database$new(api_file = 'api_keys.RData')
+db$read_all_ret()
+
+astudioApp(db)
