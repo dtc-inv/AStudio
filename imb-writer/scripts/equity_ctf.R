@@ -1,6 +1,6 @@
 
 
-write_equity <- function(dtc_name, bench, pres, db, dict, descr, col, locater,
+write_equity <- function(dtc_name, bench_nm, pres, db, dict, descr, col, locater,
                             slide_title, is_us = TRUE, is_ctf = TRUE) {
   set_flextable_defaults(font.size = 8)
   dict <- dict[dict$Page == dtc_name, ]
@@ -10,22 +10,30 @@ write_equity <- function(dtc_name, bench, pres, db, dict, descr, col, locater,
   descr <- descr[descr$Page == dtc_name, ]
   rf <- db$read_ret_ticker("BIL")
   rf <- change_freq(na.omit(rf), "months")
+  lib <- db$ac$get_library("returns")
   if (is_ctf) {
-    fund <- dtc_name_match_ret(dtc_name, db$ret, TRUE)$r
-    fund <- change_freq(na.omit(fund))
+    record <- lib$read("ctf")
+    fund <- xts(record$data[, dtc_name], as.Date(record$data$Date))
+    fund <- na.omit(fund)
+    colnames(fund) <- dtc_name
   }
+  record <- lib$read("index")
+  bench <- record$data[, c("Date", bench_nm)]
+  bench <- dataframe_to_xts(bench)
   bench <- change_freq(na.omit(bench))
   combo <- clean_asset_bench_rf(fund, bench, rf)
   
   # need work around for mutual fund models
-  hdf <- read_holdings_file(db$bucket, dtc_name, TRUE)
-  mdf <- merge_msl(hdf, db$msl)
-  ddf <- drill_down(mdf, db$msl, db$bucket)
+  port_hold <- db$read_hold(dtc_name, TRUE)
+  port <- Portfolio$new(db$ac, port_hold, db$tbl_msl)
+  port$drill_down()
   if (is_us) {
-    bench_df <- read_holdings_file(db$bucket, "iShares Russell 3000 (IWV)", TRUE)
+    bench_hold <- db$read_hold("iShares Russell 3000 (IWV)", TRUE)
   } else {
-    bench_df <- read_holdings_file(db$bucket, "iShares ACWI Ex US (ACWX)", TRUE)
+    bench_hold <- db$read_hold("iShares ACWI Ex US (ACWX)", TRUE)
   }
+  macro <- read_parquet(db$bucket$path("macro/macro_r3.parquet"))
+  bench <- Portfolio$new(db$ac, bench_hold, db$tbl_msl)
   trail_perf_ft <- create_trail_perf_tbl(combo, col)
   perf_stat_ft <- create_perf_tbl(combo, col)
   char_ft <- create_char_tbl(ddf, db, col)

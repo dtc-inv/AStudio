@@ -1,8 +1,7 @@
 library(officer)
-library(diversifieR)
 library(flextable)
 library(scales)
-
+library(rtic)
 
 xfile <-dir("imb-writer/scripts/")
 for (i in 1:length(xfile)) {
@@ -11,10 +10,9 @@ for (i in 1:length(xfile)) {
   }
 }
 
-db <- Database$new()
-db$read_all_ret()
+db <- Database$new("~/api_keys.RData", "C:/Users/asotolongo/AppData/Local/anaconda3/")
 
-col <- dtc_col()
+col <- diversifieR::dtc_col()
 dict_file <- "N:/Investment Team/REPORTING/IMB/imb-writer/imb-data-input.xlsx"
 dict <- readxl::read_excel(dict_file, "data")
 descr <- readxl::read_excel(dict_file, "descr")

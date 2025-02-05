@@ -1,17 +1,19 @@
 #' @title Performance Table
-#' @param combo list containing fund, benchmark, and rf, see 
-#'   `clean_asset_bench_rf`
-#' @param col color vector, see `dtc_col`
+#' @param rpt Reporter Object
+#' @param freq Frequency of returns
 #' @return flextable with formatted performance stats: alpha, beta, sharpe, TE,
 #'   and up / down capture
 #' @export
-create_perf_tbl <- function(combo, col) {
-  fund <- combo$x
+create_perf_tbl <- function(rpt, freq = "M") {
+  col <- rpt$col
+  combo <- rpt$ret_combo(freq)
+  combo <- combo[[1]]
+  fund <- combo$p
   bench <- combo$b
   rf <- combo$rf
   # the stats in performance table are a subset of the perf_summary output and
   # alpha
-  res <- perf_summary(combo$x, combo$rf, combo$b, "months")
+  res <- perf_summary(combo$p, combo$rf, combo$b, "months")
   perf_tbl <- data.frame(
     STATISTICS = c("Alpha", "Beta", "Sharpe", "Tracking Error", "Up Capture",
                    "Down Capture"),
@@ -40,15 +42,16 @@ create_perf_tbl <- function(combo, col) {
 }
 
 #' @title Trailing Periodic Performance
-#' @param combo list containing fund, benchmark, and rf, see 
-#'   `clean_asset_bench_rf`
-#' @param col color vector, see `dtc_col`
+#' @param rpt Reporter Object
+#' @param freq Frequency of returns
 #' @export
-create_trail_perf_tbl <- function(combo, col) {
-  fund <- combo$x
+create_trail_perf_tbl <- function(rpt, freq = "M") {
+  col <- rpt$col
+  combo <- rpt$ret_combo(freq)[[1]]
+  fund <- combo$p
   bench <- combo$b
   rf <- combo$rf
-  dt <- eom_cal_per()[-1]
+  dt <- eom_cal_perf_dt()[-1]
   cr <- matrix(nrow = 2, ncol = length(dt))
   for (i in 1:length(dt)) {
     if (i >= 3) {
@@ -56,10 +59,10 @@ create_trail_perf_tbl <- function(combo, col) {
     } else {
       n <- 1
     }
-    cr[1, i] <- prod(combo$x[paste0(dt[i], "/")] + 1)^(1/n)-1
-    cr[2, i] <- prod(combo$b[paste0(dt[i], "/")] + 1)^(1/n)-1
+    cr[1, i] <- prod(fund[paste0(dt[i], "/")] + 1)^(1/n)-1
+    cr[2, i] <- prod(bench[paste0(dt[i], "/")] + 1)^(1/n)-1
   }
-  n_obs <- nrow(combo$x)
+  n_obs <- nrow(fund)
   if (n_obs < 120) {
     cr[, 6] <- NA
   }
@@ -77,7 +80,7 @@ create_trail_perf_tbl <- function(combo, col) {
   cr$FUND <- c(colnames(fund), colnames(bench))
   cr <- cr[, c(ncol(cr), 1:(ncol(cr)-1))]
   
-  yrs <- change_freq(xts_cbind(combo$x, combo$b), "years")
+  yrs <- change_freq(xts_cbind(fund, bench), "years")
   yrs <- xts_to_dataframe(yrs)
   yrs <- yrs[order(yrs$Date, decreasing = TRUE), ]
   yrs <- yrs[1:7, ]
@@ -104,27 +107,22 @@ create_trail_perf_tbl <- function(combo, col) {
 }
 
 #' @title Create Characteristics Table
-#' @param hdf holdings data.frame, see `read_holdings_file`
-#' @param db Database object
+#' @param rpt Reporter Object
+#' @param freq Frequency of returns
 #' @export
-create_char_tbl <- function(ddf, db, col) {
-  ddf <- merge_fina_rec(ddf, db$bucket)
-  x <- ddf$match
-  x$PE[x$PE < 0] <- NA
-  x$pctVal[is.na(x$PE)] <- NA
-  x$pctVal <- x$pctVal / sum(x$pctVal, na.rm = TRUE)
+create_char_tbl <- function(rpt) {
+  col <- rpt$col
   char_tbl <- data.frame(
-    CHARACTERISTICS = c("Yield", "TTM P/E Ratio", "TTM P/B Ratio"),
+    CHARACTERISTICS = c("Dividend Yield", "TTM P/E Ratio", "TTM P/B Ratio"),
     FUND = ""
   )
-  char_tbl[2, 2] <- scales::number(wgt_har_mean(x$pctVal, x$PE), 0.1)
-  x <- ddf$match
-  x$PB[x$PB < 0] <- NA
-  x$pctVal[is.na(x$PB)] <- NA
-  x$pctVal <- x$pctVal / sum(x$pctVal, na.rm = TRUE)
-  char_tbl[3, 2] <- scales::number(wgt_har_mean(x$pctVal, x$PB), 0.1)
-  char_tbl[1, 2] <- scales::percent(
-    sum(ddf$match$pctVal * ddf$match$DY/100, na.rm = TRUE), 0.1)
+  x <- rpt$fina_summ()
+  char_tbl <- data.frame(Metric = x$Metric, a = NA, b = NA)
+  char_tbl[1:3, 2] <- scales::number(x[1:3, 2])
+  char_tbl[1:3, 3] <- scales::number(x[1:3, 3])
+  char_tbl[4, 2] <- scales::percent(x[4, 2]/100, accuracy = 0.1)
+  char_tbl[4, 3] <- scales::percent(x[4, 3]/100, accuracy = 0.1)
+  colnames(char_tbl) <- colnames(x)
   flextable(char_tbl) |>
     theme_alafoli() |>
     font(part = "body", fontname = "Source Sans Pro Light") |>
@@ -135,8 +133,12 @@ create_char_tbl <- function(ddf, db, col) {
 }
 
 
-create_wealth_cht <- function(combo, col) {
-  viz_wealth_index(xts_cbind(combo$x, combo$b)) +
+create_wealth_cht <- function(rpt, freq = "M") {
+  col <- rpt$col
+  combo <- rpt$ret_combo(freq)[[1]]
+  fund <- combo$p
+  bench <- combo$b
+  viz_wealth_index(xts_cbind(fund, bench)) +
     scale_color_manual(values = col[c(1, 4)]) +
     xlab("") + labs(title = "CUMULATIVE PERFORMANCE") + 
     theme(
@@ -157,21 +159,17 @@ create_wealth_cht <- function(combo, col) {
     )
 }
 
-create_capm_cht <- function(combo, dict, db, col, legend_loc = "right") {
-  nm <- dict$Value[dict$DataType == "Map"]
-  ix <- db$msl$DTCName %in% nm
-  ix[is.na(ix)] <- FALSE
-  x <- db$msl[ix, ]
-  sma <- x[x$SecType == "SMA", ]$DTCName
-  sma_ret <- dtc_name_match_ret(sma, db$ret, TRUE)
-  asset_ret <- dtc_name_match_ret(x[x$SecType != "SMA", ]$DTCName, db$ret)
-  if (length(asset_ret) > 0) {
-    asset_ret <- change_freq(na.omit(asset_ret$r))
-  }
-  asset_ret <- xts_cbind(asset_ret, sma_ret$r)
-  asset_ret <- na.omit(asset_ret)
-  plot_ret <- xts_cbind(asset_ret, combo$x)
-  plot_ret <- xts_cbind(plot_ret, combo$b)
+create_capm_cht <- function(rpt, freq = "M", legend_loc = "right") {
+  col <- rpt$col
+  
+  combo <- rpt$ret_combo(freq)[[1]]
+  asset <- combo$xp
+  bench <- combo$xb
+  rf <- combo$xrf
+  port <- combo$p
+  
+  plot_ret <- xts_cbind(asset, port)
+  plot_ret <- xts_cbind(plot_ret, bench)
   plot_ret <- na.omit(plot_ret)
   plot_y <- calc_geo_ret(plot_ret, "months")
   plot_x <- calc_vol(plot_ret, "months")
@@ -255,17 +253,15 @@ create_fund_capm_chart <- function(combo, col, legend_loc = "right") {
     )
 }
 
-create_sector_cht <- function(port_df, bench_df, db, col) {
-  db$read_macro()
-  ix <- match(port_df$match$Ticker, db$macro$r3$Ticker)
-  macro <- cbind(port_df$match, db$macro$r3[ix, c("Company Name", "Sector")])
+create_sector_cht <- function(port_df, bench_df, macro_in, col) {
+  ix <- match(port_df$Ticker, macro$Ticker)
+  macro <- cbind(port_df, macro_in[ix, c("Company Name", "Sector")])
   port_sect <- group_by(macro, Sector) |>
-    summarize(Portfolio = sum(pctVal, na.rm = TRUE))
-  bench_df <- merge_msl(bench_df, db$msl)
-  ix <- match(bench_df$match$Ticker, db$macro$r3$Ticker)
-  macro <- cbind(bench_df$match, db$macro$r3[ix, c("Company Name", "Sector")])
+    summarize(Portfolio = sum(CapWgt, na.rm = TRUE))
+  ix <- match(bench_df$Ticker, macro$Ticker)
+  macro <- cbind(bench_df, macro_in[ix, c("Company Name", "Sector")])
   bench_sect <- group_by(macro, Sector) |>
-    summarize(Benchmark = sum(pctVal, na.rm = TRUE))
+    summarize(Benchmark = sum(CapWgt, na.rm = TRUE))
   sect <- left_join(bench_sect, port_sect, by = "Sector") |>
     pivot_longer(-Sector)
   sect$name <- factor(sect$name, unique(sect$name))
