@@ -159,7 +159,8 @@ create_wealth_cht <- function(rpt, freq = "M") {
     )
 }
 
-create_capm_cht <- function(rpt, freq = "M", legend_loc = "right") {
+create_capm_cht <- function(rpt, freq = "M", funds = TRUE, 
+                            legend_loc = "right") {
   col <- rpt$col
   
   combo <- rpt$ret_combo(freq)[[1]]
@@ -168,7 +169,11 @@ create_capm_cht <- function(rpt, freq = "M", legend_loc = "right") {
   rf <- combo$xrf
   port <- combo$p
   
-  plot_ret <- xts_cbind(asset, port)
+  if (funds) {
+    plot_ret <- xts_cbind(asset, port)
+  } else {
+    plot_ret <- port
+  }
   plot_ret <- xts_cbind(plot_ret, bench)
   plot_ret <- na.omit(plot_ret)
   plot_y <- calc_geo_ret(plot_ret, "months")
@@ -178,10 +183,10 @@ create_capm_cht <- function(rpt, freq = "M", legend_loc = "right") {
     y = plot_y,
     name = colnames(plot_ret)
   )
-  plot_dat$Bench <- plot_dat$name %in% colnames(combo$b)
+  plot_dat$Bench <- plot_dat$name %in% colnames(bench)
   plot_dat$shape <- ifelse(plot_dat$Bench, 17, 16)
   plot_dat$name <- factor(plot_dat$name, unique(plot_dat$name))
-  capm_cht <- ggplot(plot_dat, aes(x = x, y = y, col = name)) +
+  ggplot(plot_dat, aes(x = x, y = y, col = name)) +
     geom_point(size = 3, shape =plot_dat$shape) +
     geom_vline(xintercept = plot_dat$x[plot_dat$Bench], color = "grey") + 
     geom_hline(yintercept = plot_dat$y[plot_dat$Bench], color = "grey") +
@@ -211,7 +216,15 @@ create_capm_cht <- function(rpt, freq = "M", legend_loc = "right") {
 }
 
 
-create_fund_capm_chart <- function(combo, col, legend_loc = "right") {
+create_fund_capm_chart <- function(rpt, freq = "M", legend_loc = "right") {
+  col <- rpt$col
+  
+  combo <- rpt$ret_combo(freq)[[1]]
+  asset <- combo$xp
+  bench <- combo$xb
+  rf <- combo$xrf
+  port <- combo$p
+  
   plot_ret <- xts_cbind(combo$x, combo$b)
   plot_ret <- na.omit(plot_ret)
   plot_y <- calc_geo_ret(plot_ret, "months")
@@ -253,20 +266,13 @@ create_fund_capm_chart <- function(combo, col, legend_loc = "right") {
     )
 }
 
-create_sector_cht <- function(port_df, bench_df, macro_in, col) {
-  ix <- match(port_df$Ticker, macro$Ticker)
-  macro <- cbind(port_df, macro_in[ix, c("Company Name", "Sector")])
-  port_sect <- group_by(macro, Sector) |>
-    summarize(Portfolio = sum(CapWgt, na.rm = TRUE))
-  ix <- match(bench_df$Ticker, macro$Ticker)
-  macro <- cbind(bench_df, macro_in[ix, c("Company Name", "Sector")])
-  bench_sect <- group_by(macro, Sector) |>
-    summarize(Benchmark = sum(CapWgt, na.rm = TRUE))
-  sect <- left_join(bench_sect, port_sect, by = "Sector") |>
-    pivot_longer(-Sector)
-  sect$name <- factor(sect$name, unique(sect$name))
+create_sector_cht <- function(rpt) {
+  dat <- rpt$sector_summ("GicsMacro")
+  sect <- pivot_longer(dat, -GicsMacro, names_to = "name", values_to = "value")
+  colnames(sect)[1] <- "Sector"
+  sect$Sector <- factor(sect$Sector, unique(sect$Sector))
   abbr <- data.frame(
-    Sector = sort(unique(macro$Sector)),
+    Sector = sort(unique(sect$Sector)),
     Abbr = c("Comm Serv.", "Cons Disc.", "Cons Stap.", "Energy", "Fina.", 
              "Health", "Indust.", "Tech", "Materials", "Real Estate", "Util.")
   )
@@ -307,27 +313,8 @@ create_sector_cht <- function(port_df, bench_df, macro_in, col) {
           legend.box.spacing = unit(-10, "pt"))
 }
 
-create_country_cht <- function(port_df, bench_df, db, col) {
-  ddf <- merge_country(ddf, db$bucket)
-  ix <- match(port_df$match$Ticker, db$macro$r3$Ticker)
-  macro <- cbind(port_df$match, db$macro$r3[ix, c("Company Name", "Sector")])
-  port_sect <- group_by(macro, Sector) |>
-    summarize(Portfolio = sum(pctVal, na.rm = TRUE))
-  bench_df <- merge_msl(bench_df, db$msl)
-  ix <- match(bench_df$match$Ticker, db$macro$r3$Ticker)
-  macro <- cbind(bench_df$match, db$macro$r3[ix, c("Company Name", "Sector")])
-  bench_sect <- group_by(macro, Sector) |>
-    summarize(Benchmark = sum(pctVal, na.rm = TRUE))
-  sect <- left_join(bench_sect, port_sect, by = "Sector") |>
-    pivot_longer(-Sector)
-  sect$name <- factor(sect$name, unique(sect$name))
-  abbr <- data.frame(
-    Sector = sort(unique(macro$Sector)),
-    Abbr = c("Comm Serv.", "Cons Disc.", "Cons Stap.", "Energy", "Fina.", 
-             "Health", "Indust.", "Tech", "Materials", "Real Estate", "Util.")
-  )
-  sect$lbl <- scales::percent(sect$value, 0.1)
-  sect <- left_join(sect, abbr, by = "Sector")
+create_country_cht <- function(rpt) {
+  dat <- rpt$country_summ()
   ggplot(sect, aes(y = value, x = Abbr, fill = name, label = lbl)) + 
     geom_bar(stat = "identity", position = "dodge") +
     geom_text(
